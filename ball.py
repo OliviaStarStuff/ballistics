@@ -1,6 +1,4 @@
 """Written by Olivia from nowhere for studies at the USIC"""
-from __future__ import generators
-from email import generator
 from itertools import chain
 import math
 from time import time
@@ -251,7 +249,7 @@ class Game:
                 CANVAS.itemconfig(j, text=f"{text:.1f}m")
 
     def toggle_normal(self, e: Event) -> None:
-        self.fixed_mag =  math.sqrt(e.x**2 + (WINSIZE-e.y-self.oy)**2)
+        self.fixed_mag =  math.hypot(e.x, (WINSIZE-e.y-self.oy))
         self.fixed = not self.fixed
 
         if self.fixed:
@@ -332,7 +330,7 @@ class Bullet:
             CANVAS.itemconfig(self.time, text=f"{time()-self.start:.1f} s")
             CANVAS.itemconfig(
                 self.vy_label,
-                text=f"{math.sqrt(vy**2 + self.velocity.x**2):.1f}m/s")
+                text=f"{math.hypot(vy, self.velocity.x/self.game.scale):.1f}m/s")
             WIN.after(7, self.shooting_after)
         except StopIteration:
             CANVAS.delete(self.ball)
