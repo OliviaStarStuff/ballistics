@@ -1,5 +1,6 @@
 """Written by Olivia from nowhere for studies at the USIC"""
-import decimal
+from __future__ import generators
+from email import generator
 from itertools import chain
 import math
 from time import time
@@ -48,16 +49,16 @@ def get_trajectory(force: Vec2,
     gravity: float = -9.81, time_step: float = 0.01
     ) -> Trajectory:
     """generates a tuple of trajectory coordinates"""
-    # time_taken = (2*(WINSIZE-yv)/multiplier)/-gravity #2 2u/a = t
     mod_force = force.s_div(multiplier)
     time_taken = quad_solver(gravity/2, mod_force.y, oy) # 0 = at^2/2 +ut-s
-    height = ((mod_force.y**2) / (-2*gravity) + oy) / scale # s = -u^2/(2a)
+    height = ((mod_force.y**2) / (-2*gravity) + oy) / scale # s = -u^2/(2a) + c
     point_y = WINSIZE-1
     traj = []
     point = 0
     while point_y <= WINSIZE+100:
         point_x = point * mod_force.x
-        point_y = WINSIZE - (mod_force.y * point + (0.5 * gravity * (point**2))) - oy
+        point_y = WINSIZE - (mod_force.y * point
+                             + (0.5 * gravity * (point**2))) - oy
         traj.append(Vec2(point_x, point_y))
         point += time_step
     return Trajectory(traj, time_taken, height, mod_force)
@@ -175,7 +176,6 @@ class Game:
         """Updates the UI"""
         o_height = WINSIZE-self.oy
         force = Vec2(e.x, WINSIZE-e.y-self.oy)
-        # Calculate angle
         angle = find_angle(*force)
         if self.angle_lock and angle < 0:
             force.y = 0
@@ -187,7 +187,7 @@ class Game:
                                      self.scale, self.gravity)
 
         CANVAS.itemconfig(self.labels["time"],
-                          text=f"Flight Time: {self.traj.time_taken:.1f} seconds")
+            text=f"Flight Time: {self.traj.time_taken:.1f} seconds")
         magnitude = self.traj.velocity.magnitude()/self.scale
         CANVAS.itemconfig(self.labels["mag"],
                           text=f"Velocity: {magnitude:.3f}m/s")
@@ -199,9 +199,10 @@ class Game:
 
         CANVAS.itemconfig(self.labels["angle"], text=f"{angle:.2f}degrees")
 
-        CANVAS.coords(self.lines["force"], 0, o_height, force.x, o_height-force.y)
+        CANVAS.coords(self.lines["force"], 0,
+                      o_height, force.x, o_height-force.y)
         CANVAS.coords(self.labels["angle"], force.x/2+5,
-                      o_height-(force.y)/2) # winsize - (winsize - e.y - self.oy) /2
+                      o_height-(force.y)/2)
         CANVAS.coords(self.lines["traj"],
                       *chain.from_iterable(self.traj.points))
 
@@ -214,13 +215,11 @@ class Game:
         """Move gun up"""
         self.oy += 50
         self._draw_scene(e)
-        # CANVAS.moveto(angle_arc, 0, WINSIZE-50-self.oy)
         self._update_mag_circle(e)
 
     def _decrease_height(self, e: Event) -> None:
         """Move gun down"""
         self.oy = max(0, self.oy-50)
-        # CANVAS.moveto(angle_arc, 0, WINSIZE-50-self.oy)
         self._update_mag_circle(e)
 
     def _update_mag_circle(self, e: Event) -> None:
@@ -273,7 +272,6 @@ class Game:
         self._draw_scene(e)
 
     def _shoot(self, e: Event) -> None:
-        # print("shoot")
         bullet = Bullet(self, self.traj.points, 10, self.traj.velocity)
         WIN.after(1, bullet.shooting_after)
         self.bullet_list.append(bullet)
@@ -288,7 +286,8 @@ class Game:
 
 
 class Bullet:
-    def __init__(self, game: Game, traj: list[Vec2], width: int, velocity: Vec2) -> None:
+    def __init__(self, game: Game, traj: list[Vec2],
+                 width: int, velocity: Vec2) -> None:
         self.start = time()
         self.traj = TrajectoryGenerator(traj, self.start)
         if game.heart_toggle:
