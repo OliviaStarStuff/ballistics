@@ -160,16 +160,16 @@ class Game:
         exit_button.pack(side=RIGHT, padx=50)
 
     def _add_key_bindings(self) -> None:
-        WIN.bind('<Motion>', self._mouse_pos)
-        WIN.bind('<Up>', self._increase_height)
-        WIN.bind('<Down>', self._decrease_height)
-        WIN.bind('<Left>', self._zoom_in)
-        WIN.bind('<Right>', self._zoom_out)
-        WIN.bind('n', self._toggle_normal)
-        WIN.bind('<3>', self._toggle_normal, add="+")
-        WIN.bind('<1>', self._shoot)
-        WIN.bind('h', self._heart)
-        WIN.bind('a', self._toggle_angle)
+        WIN.bind('<Motion>', self.mouse_pos)
+        WIN.bind('<Up>', self.increase_height)
+        WIN.bind('<Down>', self.decrease_height)
+        WIN.bind('<Left>', self.zoom_in)
+        WIN.bind('<Right>', self.zoom_out)
+        WIN.bind('n', self.toggle_normal)
+        WIN.bind('<3>', self.toggle_normal, add="+")
+        WIN.bind('<1>', self.shoot)
+        WIN.bind('h', self.heart)
+        WIN.bind('a', self.toggle_angle)
 
     """All input bindings"""
     def _draw_scene(self, e: Event) -> None:
@@ -206,18 +206,17 @@ class Game:
         CANVAS.coords(self.lines["traj"],
                       *chain.from_iterable(self.traj.points))
 
-    def _mouse_pos(self, e: Event) -> None:
+    def mouse_pos(self, e: Event) -> None:
         """On mouse movement on Canvas"""
         if isinstance(e.widget.winfo_containing(e.x_root, e.y_root), Canvas):
             self._draw_scene(e)
 
-    def _increase_height(self, e: Event) -> None:
+    def increase_height(self, e: Event) -> None:
         """Move gun up"""
         self.oy += 50
-        self._draw_scene(e)
         self._update_mag_circle(e)
 
-    def _decrease_height(self, e: Event) -> None:
+    def decrease_height(self, e: Event) -> None:
         """Move gun down"""
         self.oy = max(0, self.oy-50)
         self._update_mag_circle(e)
@@ -230,11 +229,11 @@ class Game:
                 WINSIZE+self.fixed_mag-self.oy, self.fixed_mag,
                 WINSIZE-self.fixed_mag-self.oy)
 
-    def _zoom_out(self, e: Event) -> None:
+    def zoom_out(self, e: Event) -> None:
         self.zoom = min(self.zoom+1, len(SCALES)-1)
         self._update_scale(e)
 
-    def _zoom_in(self, e: Event) -> None:
+    def zoom_in(self, e: Event) -> None:
         self.zoom = max(self.zoom-1, 0)
         self._update_scale(e)
 
@@ -251,7 +250,7 @@ class Game:
                 text = (WINLENGTH/7.5 * (i-WINSIZE//100+1)) / self.scale
                 CANVAS.itemconfig(j, text=f"{text:.1f}m")
 
-    def _toggle_normal(self, e: Event) -> None:
+    def toggle_normal(self, e: Event) -> None:
         self.fixed_mag =  math.sqrt(e.x**2 + (WINSIZE-e.y-self.oy)**2)
         self.fixed = not self.fixed
 
@@ -267,11 +266,11 @@ class Game:
         CANVAS.itemconfig(self.lines["mag_circle"], state=state)
         self._draw_scene(e)
 
-    def _toggle_angle(self, e: Event) -> None:
+    def toggle_angle(self, e: Event) -> None:
         self.angle_lock = not self.angle_lock
         self._draw_scene(e)
 
-    def _shoot(self, e: Event) -> None:
+    def shoot(self, e: Event) -> None:
         bullet = Bullet(self, self.traj.points, 10, self.traj.velocity)
         WIN.after(1, bullet.shooting_after)
         self.bullet_list.append(bullet)
@@ -279,7 +278,7 @@ class Game:
         CANVAS.itemconfig(self.labels["bomb"],
                           text=f"Balls thrown: {self.bomb_counter}")
 
-    def _heart(self, e: Event) -> None:
+    def heart(self, e: Event) -> None:
         self.heart_toggle = not self.heart_toggle
         for i in self.bullet_list:
             i.toggle_heart()
@@ -345,7 +344,6 @@ class Bullet:
 
 def main() -> None:
     game = Game()
-    """Start window"""
     game.start()
 
 
