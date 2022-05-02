@@ -11,5 +11,7 @@ controls use mouse and keyboard.
 * Left Mouse Button throws a ball
 * Right Mouse Button locks the magnitude of the throw.
 * H changes the balls into hearts.
+* A to lock angle so it can't go below the horizontal
 
-Main areas of improvement involve using classes to store constants that are not meant to be constants.
+~~Main areas of improvement involve using classes to store constants that are not meant to be constants.~~  
+Sorted.
