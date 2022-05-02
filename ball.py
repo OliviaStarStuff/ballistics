@@ -1,302 +1,354 @@
 """Written by Olivia from nowhere for studies at the USIC"""
-
-from tkinter import *
 import decimal
-from typing import Callable
+from itertools import chain
+import math
 from time import time
+from tkinter import (N, NE, NW, W, SW, S, RIGHT, LEFT,
+                     Tk, Canvas, Event, Label, Button)
 import random
 from string import hexdigits
-import math
+from typing import Generator
+
 from PIL import Image, ImageTk
 
-#actually constants
+from vector import Trajectory, Vec2
+
+
+"""constants"""
 WINSIZE = 700
 WINLENGTH = 1500
 SCALES = (0.1, 1, 5, 10, 25, 50)
-BG = "#7F3C7F"
-BOMB_COUNTER = 0
-
-#actually global variables that shouldn't be
-ZOOM = 2
-SCALE = SCALES[ZOOM]
 SCALE_INTERVAL = WINSIZE//(WINSIZE//100)
-GRAVITY = -9.81 * SCALE
-MULTIPLIER = 4.23*SCALE**-0.495/1.7
-FIXED = False
-FIXED_MAG = 200
-OY = 0
-HEART_TOGGLE = False
-
+BG = "#7F3C7F"
+WIN = Tk()
+CANVAS = Canvas(WIN, width=WINLENGTH, height=WINSIZE, highlightthickness=0)
+HEART = ImageTk.PhotoImage(Image.open("heart.png").convert("RGBA"))#.resize((20, 20))
 
 
 """Helper functions"""
-def float_range(start, stop, step):
-    """Produces a range from floats"""
-    while start < stop:
-        yield float(start)
-        start += decimal.Decimal(step)
+def quad_solver(a: float, b: float, c: float) -> float:
+    """Quadratic Equation the finds positive x"""
+    positive_x = (-b - math.sqrt(b**2-4*a*c)) / (2*a)
+    return positive_x
 
-def quad_solver(a, b, c):
-    # print(a, b, c)
-    res = (-b - math.sqrt(b**2-4*a*c))/(2*a)
-    # print(res)
-    return res
 
-def get_trajectory(xv, yv ,oy=0, time_step=0.01) -> tuple:
+def TrajectoryGenerator(traj: list[Vec2],
+        start: float) -> Generator[tuple[float, float], float, None]:
+    """generates the next set of x,y points for an object"""
+    diff = 0
+    yield traj[round(diff*100)].x, traj[round(diff*100)].y
+    diff = time() - start
+    while traj[round(diff*100)].y < (WINSIZE + 10):
+        yield traj[round(diff*100)].x, traj[round(diff*100)].y
+        diff = time() - start
+
+
+def get_trajectory(force: Vec2,
+    oy: int=0, multiplier: float = 1.0, scale: float = 1.0,
+    gravity: float = -9.81, time_step: float = 0.01
+    ) -> Trajectory:
     """generates a tuple of trajectory coordinates"""
-
-    time_taken = (2*(WINSIZE-yv)/MULTIPLIER)/-GRAVITY
-    uy = (WINSIZE-yv)/MULTIPLIER
-    ux = xv/MULTIPLIER
-    # print(OY/SCALE)
-    time_taken = quad_solver(GRAVITY/SCALE/2, uy/SCALE, OY/SCALE)
-    height = (uy**2) / (-2*GRAVITY) / SCALE + OY/SCALE
+    # time_taken = (2*(WINSIZE-yv)/multiplier)/-gravity #2 2u/a = t
+    mod_force = force.s_div(multiplier)
+    time_taken = quad_solver(gravity/2, mod_force.y, oy) # 0 = at^2/2 +ut-s
+    height = ((mod_force.y**2) / (-2*gravity) + oy) / scale # s = -u^2/(2a)
     point_y = WINSIZE-1
     traj = []
     point = 0
     while point_y <= WINSIZE+100:
-    # for point in float_range(0, time_taken+1, time_step):
-        point_x = point * ux
-        point_y = WINSIZE - (uy * point + (0.5 * GRAVITY * (point**2))) - oy
-        traj.extend([point_x,point_y])
+        point_x = point * mod_force.x
+        point_y = WINSIZE - (mod_force.y * point + (0.5 * gravity * (point**2))) - oy
+        traj.append(Vec2(point_x, point_y))
         point += time_step
-    return traj, time_taken, height, ux, uy
+    return Trajectory(traj, time_taken, height, mod_force)
 
-def TrajectoryGenerator(traj, start):
-        diff = 0
-        #while diff < end:
-        yield traj[round(diff*100)*2], traj[round(diff*100)*2+1]
-        diff = time() - start
-        while traj[round(diff*100)*2+1] < WINSIZE+10:
-            yield traj[round(diff*100)*2], traj[round(diff*100)*2+1]
-            diff = time() - start
 
-def normalize_coords(x, y):
-        xy_mag = math.sqrt(x**2 + (WINSIZE-y-OY)**2)
-        # print(FIXED_MAG,xy_mag, (WINSIZE-y-OY)/xy_mag*FIXED_MAG+OY)
+def find_angle(x:float, y:float) -> float:
+    return math.degrees(math.asin(y/math.hypot(x, y)))
 
-        nx = (x/xy_mag * FIXED_MAG)
-        ny = ((WINSIZE-y-OY)/xy_mag * FIXED_MAG)+OY
-        # print((1/mag * e.x * 20))
-        return nx, WINSIZE-ny
 
-def main() -> None:
-    """Build Window"""
-    win = Tk()
-    win.title("Ballistics test")
-    win.geometry(f"{WINLENGTH}x{WINSIZE+28}")
-    win.resizable(height = False, width = False)
-    win.configure(background=BG)
-    # win.wm_attributes("-transparentcolor", "white")
-    """Add canvas"""
-    canvas=Canvas(win, width=WINLENGTH, height=WINSIZE, highlightthickness=0)
-    canvas.config(cursor="none")
-    canvas.pack(pady=0)
+"""Classes"""
+class Game:
+    fonts = (("Helvetica", 14), ("Helvetica", 10))
+    def __init__(self, zoom: int = 2) -> None:
+        """Set up variables"""
+        self.zoom = zoom
+        self.scale = SCALES[self.zoom]
+        self.gravity = -9.81 * self.scale
+        self.multiplier = 4.23 * self.scale ** -0.495/1.7
+        self.fixed = False
+        self.fixed_mag = 200.0
+        self.oy = 0
+        self.heart_toggle = False
+        self.angle_lock = False
+        self.bomb_counter = 0
+        self.scale_label: list = []
+        self.lines: dict = {}
+        self.labels: dict = {}
+        self.traj: Trajectory = None
+        self.bullet_list: list[Bullet] = []
 
-    # canvas.place(relx=0.5, rely=0.5, anchor=CENTER)
+        self._configure_window()
+        self._populate_scales()
+        self._create_lines()
+        self._create_labels()
+        self._add_key_bindings()
 
-    font = ("Helvetica", 14)
-    font2 = ("Helvetica", 10)
-    scale_label = []
+    def start(self) -> None:
+        WIN.mainloop()
 
-    """Add vertical scale"""
-    for i in range(WINSIZE//100):
-         canvas.create_line(0,i*SCALE_INTERVAL,WINLENGTH,i*SCALE_INTERVAL, fill="#DDDDDD")
-         scale_label.append(canvas.create_text(5, WINSIZE-SCALE_INTERVAL*i, font=font2, anchor="sw", text=f"{(SCALE_INTERVAL * i) // SCALE:.0f}m"))
-    for i in range(1,10):
-        scale_label.append(canvas.create_text(WINLENGTH/7.5*i, WINSIZE, font=font2, anchor="sw", text=f"{(WINLENGTH/7.5 * i) // SCALE:.0f}m"))
-    """Add interactive lines"""
-    force_line = canvas.create_line(0,0,0,0, fill="#FF0000")
-    traj_line = canvas.create_line(0,0,0,0, smooth=0, dash = (2, 4))
-    mag_circle = canvas.create_oval(0,0,10,10, state="hidden", dash = (8, 255), outline="#FF0000")
-    # angle_arc = canvas.create_arc(-50, WINSIZE+50, 50, WINSIZE-50, style= ARC, start=0, extent=80, width=3) does not work
-    img = Image.open("heart.png").convert("RGBA")#.resize((20, 20))
-    imgtk = ImageTk.PhotoImage(img)
+    """Setup methods"""
+    def _configure_window(self) -> None:
+        WIN.title("Ballistics test")
+        WIN.geometry(f"{WINLENGTH}x{WINSIZE+28}")
+        WIN.resizable(height = False, width = False)
+        WIN.configure(background=BG)
+        # CANVAS.config(cursor="none")
+        CANVAS.pack(pady=0)
 
-    """Add labels"""
-    bomb_counter = canvas.create_text(1495, 0, font=font, anchor="ne", text="Balls Thrown: 0")
-    mag_label = canvas.create_text(5, 0, font=font, anchor="nw")
-    time_label = canvas.create_text(5, 25, font=font, anchor="nw")
-    height_label = canvas.create_text(250, 0, font=font, anchor="nw")
-    distance_label = canvas.create_text(250, 25, font=font, anchor="nw")
-    norm_label = Label(win, font=font, bg=BG, fg="#ff0", text = "Magnitude Locked")
-    angle_label = canvas.create_text(0,0, font=font2, anchor="w", text="")
-    instruction_label = Label(win, font=font2, bg=BG, fg="#fff", text="[up/down]: Changes throwing height, [left/right]:changes simulation scale, [LMB]:Throws a ball, [RMB]:Toggles magnitude lock")
-    instruction_label.pack(side=RIGHT, anchor="n")
-    # exit_button = Button(win, text="Exit", command=win.destroy)
-    # exit_button.pack(side=RIGHT, padx=50)
+    def _populate_scales(self) -> None:
+        for i in range(WINSIZE//100):
+            CANVAS.create_line(0, i*SCALE_INTERVAL, WINLENGTH,
+                               i*SCALE_INTERVAL, fill="#DDDDDD")
+            self.scale_label.append(
+                CANVAS.create_text(
+                    5, WINSIZE-SCALE_INTERVAL*i,
+                    font=self.fonts[1], anchor="sw",
+                    text=f"{(SCALE_INTERVAL * i) // self.scale:.0f}m"))
+        for i in range(1,10):
+            self.scale_label.append(
+                CANVAS.create_text(
+                    WINLENGTH/7.5*i, WINSIZE,
+                    font=self.fonts[1], anchor="sw",
+                    text=f"{(WINLENGTH/7.5 * i) // self.scale:.0f}m"))
 
-    bullet_list = []
+    def _create_lines(self) -> None:
+        self.lines["force"] = CANVAS.create_line(0, 0, 0, 0, fill="#FF0000")
+        self.lines["traj"] = CANVAS.create_line(0, 0, 0, 0, smooth=0,
+                                                dash=(2, 4))
+        self.lines["mag_circle"] = CANVAS.create_oval(0, 0, 10, 10,
+                                                      state="hidden",
+                                                      dash=(8, 255),
+                                                      outline="#FF0000")
 
-    """Bullet class for shooting"""
-    class Bullet:
-        def __init__(self, traj: Callable, time_taken, width, canvas, ux, uy) -> None:
-            self.start = time()
-            self.traj = TrajectoryGenerator(traj, self.start)
-            if HEART_TOGGLE:
-                self.ball = canvas.create_image(10, 10, anchor=SW, image=imgtk)
-            else:
-                self.ball = canvas.create_oval(-width, WINSIZE+width,
-                                   width+1, WINSIZE-width-1,
-                                   fill="#"+"".join(random.choices(hexdigits,k=6)))
-            self.width = width
-            self.time = canvas.create_text(-width, WINSIZE+width, text="test", anchor="ne")
-            self.vy_label = canvas.create_text(-width, WINSIZE+width, text="test", anchor="ne")
-            self.traj_line = canvas.create_line(0,0,0,0, smooth=0, dash = (2, 4), fill="#BFBFBF")
-            self.ux = ux
-            self.uy = uy
-            canvas.coords(self.traj_line, 0, WINSIZE, *traj)
+    def _create_labels(self) -> None:
+        self.labels["bomb"] = CANVAS.create_text(1495, 0, font=self.fonts[0],
+                                                 anchor=NE,
+                                                 text="Balls Thrown: 0")
+        self.labels["mag"] = CANVAS.create_text(5, 0, font=self.fonts[0],
+                                                anchor=NW)
+        self.labels["time"] = CANVAS.create_text(5, 25, font=self.fonts[0],
+                                                 anchor=NW)
+        self.labels["height"] = CANVAS.create_text(250, 0, font=self.fonts[0],
+                                                   anchor=NW)
+        self.labels["distance"] = CANVAS.create_text(250, 25,
+                                                     font=self.fonts[0],
+                                                     anchor=NW)
+        self.labels["norm"] = Label(WIN, font=self.fonts[0], bg=BG, fg="#ff0",
+                                    text = "Magnitude Locked")
+        self.labels["angle"] = CANVAS.create_text(0, 0, font=self.fonts[1],
+                                                  anchor=W, text="")
+        self.labels["instruction"] = Label(
+            WIN, font=self.fonts[1], bg=BG, fg="#fff",
+            text="[up/down]: Changes throwing height, [left/right]:changes"\
+                "simulation scale, [LMB]:Throws a ball,"\
+                "[RMB]:Toggles magnitude lock")
+        self.labels["instruction"].pack(side=RIGHT, anchor=N)
+        # print(self.labels)
+        exit_button = Button(WIN, text="Exit", command=WIN.destroy)
+        exit_button.pack(side=RIGHT, padx=50)
 
-        def toggle_heart(self):
-            canvas.delete(self.ball)
-            if HEART_TOGGLE:
-                self.ball = canvas.create_image(10, 10, anchor=S, image=imgtk)
-            else:
-                self.ball = canvas.create_oval(-self.width, WINSIZE+self.width,
-                                   self.width+1, WINSIZE-self.width-1,
-                                   fill="#"+"".join(random.choices(hexdigits,k=6)))
-
-        def shooting_after(self):
-            try:
-                a = self.traj.__next__()
-                width = a[0]-self.width
-                height = a[1]-self.width
-                canvas.moveto(self.ball, width, height)
-                canvas.moveto(self.time, width, height-10)
-                canvas.moveto(self.vy_label, width, height-20)
-                vy = (self.uy + GRAVITY * (time() - self.start))/SCALE
-                canvas.itemconfig(self.time, text=f"{time()-self.start:.1f} s")
-                canvas.itemconfig(self.vy_label, text=f"{math.sqrt(vy**2 + self.ux**2):.1f}m/s")
-                win.after(7, self.shooting_after)
-            except StopIteration:
-                # print("deleted")
-                canvas.delete(self.ball)
-                canvas.delete(self.time)
-                canvas.delete(self.vy_label)
-                canvas.delete(self.traj_line)
-                bullet_list.remove(self)
+    def _add_key_bindings(self) -> None:
+        WIN.bind('<Motion>', self._mouse_pos)
+        WIN.bind('<Up>', self._increase_height)
+        WIN.bind('<Down>', self._decrease_height)
+        WIN.bind('<Left>', self._zoom_in)
+        WIN.bind('<Right>', self._zoom_out)
+        WIN.bind('n', self._toggle_normal)
+        WIN.bind('<3>', self._toggle_normal, add="+")
+        WIN.bind('<1>', self._shoot)
+        WIN.bind('h', self._heart)
+        WIN.bind('a', self._toggle_angle)
 
     """All input bindings"""
-    def draw_scene(e):
-        global traj, time_taken, ux, uy
-
-        x = e.x
-        y = e.y
-        if FIXED:
-            x,y = normalize_coords(x, y)
-            # print(x, y, e.x, e.y)
-            # if (WINSIZE-y) < OY:
-            #     x = FIXED_MAG
-
-        traj, time_taken, height, ux, uy  = get_trajectory(xv=x, yv=y+OY, oy=OY)
-        canvas.itemconfig(time_label, text=f"Flight Time: {time_taken:.1f} seconds")
-        canvas.itemconfig(mag_label, text=f"Velocity: {math.sqrt(ux**2+uy**2)/SCALE:.3f}m/s")
-        canvas.itemconfig(distance_label, text=f"Max Displacement: {time_taken*ux/SCALE:.1f}m")
-        canvas.itemconfig(height_label, text=f"Max Height: {height:.1f}m")
+    def _draw_scene(self, e: Event) -> None:
+        """Updates the UI"""
+        o_height = WINSIZE-self.oy
+        force = Vec2(e.x, WINSIZE-e.y-self.oy)
         # Calculate angle
-        hyp = math.sqrt((WINSIZE-y-OY)**2 + x ** 2)
-        if hyp:
-            angle =  math.degrees(math.acos(x/hyp))
-        else:
+        angle = find_angle(*force)
+        if self.angle_lock and angle < 0:
+            force.y = 0
             angle = 0
-        canvas.itemconfig(angle_label, text=f"{angle:.2f}degrees")
+        if self.fixed:
+            force.normalize(self.fixed_mag)
 
+        self.traj = get_trajectory(force, self.oy, self.multiplier,
+                                     self.scale, self.gravity)
 
-        canvas.coords(force_line, 0, WINSIZE-OY, x, y)
-        canvas.coords(angle_label, x/2+5, WINSIZE-(WINSIZE-y+OY)/2)
-        canvas.coords(traj_line, *traj)
-        # canvas.itemconfig(angle_arc, extent=angle)
+        CANVAS.itemconfig(self.labels["time"],
+                          text=f"Flight Time: {self.traj.time_taken:.1f} seconds")
+        magnitude = self.traj.velocity.magnitude()/self.scale
+        CANVAS.itemconfig(self.labels["mag"],
+                          text=f"Velocity: {magnitude:.3f}m/s")
+        distance = self.traj.time_taken*self.traj.velocity.x/self.scale
+        CANVAS.itemconfig(self.labels["distance"],
+                          text=f"Max Displacement: {distance:.1f}m")
+        CANVAS.itemconfig(self.labels["height"],
+                          text=f"Max Height: {self.traj.height:.1f}m")
 
-    def mouse_pos(e) -> None:
+        CANVAS.itemconfig(self.labels["angle"], text=f"{angle:.2f}degrees")
+
+        CANVAS.coords(self.lines["force"], 0, o_height, force.x, o_height-force.y)
+        CANVAS.coords(self.labels["angle"], force.x/2+5,
+                      o_height-(force.y)/2) # winsize - (winsize - e.y - self.oy) /2
+        CANVAS.coords(self.lines["traj"],
+                      *chain.from_iterable(self.traj.points))
+
+    def _mouse_pos(self, e: Event) -> None:
+        """On mouse movement on Canvas"""
         if isinstance(e.widget.winfo_containing(e.x_root, e.y_root), Canvas):
-            draw_scene(e)
-        # print(f"Pointer is currently at {e.x}, {e.y}, {canvas.winfo_height()} {type(e.widget.winfo_containing(e.x_root, e.y_root))}")
-    def increase_height(e) -> None:
-        global OY
-        OY += 50
-        draw_scene(e)
-        # canvas.moveto(angle_arc, 0, WINSIZE-50-OY)
-        if FIXED:
-            canvas.coords(mag_circle, -FIXED_MAG,WINSIZE+FIXED_MAG-OY,FIXED_MAG,WINSIZE-FIXED_MAG-OY)
+            self._draw_scene(e)
 
-    def decrease_height(e) -> None:
-        global OY
-        OY = max(0, OY-50)
-        # canvas.moveto(angle_arc, 0, WINSIZE-50-OY)
-        draw_scene(e)
-        if FIXED:
-            canvas.coords(mag_circle, -FIXED_MAG,WINSIZE+FIXED_MAG-OY,FIXED_MAG,WINSIZE-FIXED_MAG-OY)
+    def _increase_height(self, e: Event) -> None:
+        """Move gun up"""
+        self.oy += 50
+        self._draw_scene(e)
+        # CANVAS.moveto(angle_arc, 0, WINSIZE-50-self.oy)
+        self._update_mag_circle(e)
 
-    def zoom_out(e) -> None:
-        global ZOOM, SCALE, GRAVITY, MULTIPLIER
-        ZOOM = min(ZOOM+1, len(SCALES)-1)
-        SCALE = SCALES[ZOOM]
-        GRAVITY = -9.81 * SCALE
-        MULTIPLIER = 4.23*SCALE**-0.495
-        draw_scene(e)
-        for i,j in enumerate(scale_label):
+    def _decrease_height(self, e: Event) -> None:
+        """Move gun down"""
+        self.oy = max(0, self.oy-50)
+        # CANVAS.moveto(angle_arc, 0, WINSIZE-50-self.oy)
+        self._update_mag_circle(e)
+
+    def _update_mag_circle(self, e: Event) -> None:
+        """Move Mag circle up if magnitude is fixed"""
+        self._draw_scene(e)
+        if self.fixed:
+            CANVAS.coords(self.lines["mag_circle"], -self.fixed_mag,
+                WINSIZE+self.fixed_mag-self.oy, self.fixed_mag,
+                WINSIZE-self.fixed_mag-self.oy)
+
+    def _zoom_out(self, e: Event) -> None:
+        self.zoom = min(self.zoom+1, len(SCALES)-1)
+        self._update_scale(e)
+
+    def _zoom_in(self, e: Event) -> None:
+        self.zoom = max(self.zoom-1, 0)
+        self._update_scale(e)
+
+    def _update_scale(self, e: Event) -> None:
+        self.scale = SCALES[self.zoom]
+        self.gravity = -9.81 * self.scale
+        self.multiplier = 4.23 * self.scale ** -0.495
+        self._draw_scene(e)
+        for i,j in enumerate(self.scale_label):
             if i < WINSIZE//100:
-                canvas.itemconfig(j, text=f"{(SCALE_INTERVAL * i) / SCALE:.0f}m")
+                text = (SCALE_INTERVAL * i) / self.scale
+                CANVAS.itemconfig(j, text=f"{text:.0f}m")
             else:
-                # (WINLENGTH/7.5 * i) // SCALE:.0f}
-                canvas.itemconfig(j, text=f"{(WINLENGTH/7.5 * (i-WINSIZE//100+1)) / SCALE:.1f}m")
+                text = (WINLENGTH/7.5 * (i-WINSIZE//100+1)) / self.scale
+                CANVAS.itemconfig(j, text=f"{text:.1f}m")
 
-    def zoom_in(e) -> None:
-        global ZOOM, SCALE, GRAVITY, MULTIPLIER
-        ZOOM = max(ZOOM-1, 0)
-        SCALE = SCALES[ZOOM]
-        GRAVITY = -9.81 * SCALE
-        MULTIPLIER = 4.23*SCALE**-0.495
-        draw_scene(e)
-        for i,j in enumerate(scale_label):
-            if i < WINSIZE//100:
-                canvas.itemconfig(j, text=f"{(SCALE_INTERVAL * i) / SCALE:.0f}m")
-            else:
-                canvas.itemconfig(j, text=f"{(WINLENGTH/7.5 * (i-WINSIZE//100+1)) / SCALE:.1f}m")
+    def _toggle_normal(self, e: Event) -> None:
+        self.fixed_mag =  math.sqrt(e.x**2 + (WINSIZE-e.y-self.oy)**2)
+        self.fixed = not self.fixed
 
-    def toggle_normal(e) -> None:
-        global FIXED, FIXED_MAG
-        FIXED_MAG =  math.sqrt(e.x**2 + (WINSIZE-e.y-OY)**2)
-        FIXED = not FIXED
-
-        if FIXED:
+        if self.fixed:
             state = "normal"
-            canvas.coords(mag_circle, -FIXED_MAG, WINSIZE+FIXED_MAG-OY, FIXED_MAG, WINSIZE-FIXED_MAG-OY)
-            norm_label.pack(side=LEFT, anchor="n")
+            CANVAS.coords(self.lines["mag_circle"], -self.fixed_mag,
+                          WINSIZE+self.fixed_mag-self.oy, self.fixed_mag,
+                          WINSIZE-self.fixed_mag-self.oy)
+            self.labels["norm"].pack(side=LEFT, anchor="n")
         else:
             state = "hidden"
-            norm_label.pack_forget()
-        canvas.itemconfig(mag_circle, state=state)
-        draw_scene(e)
+            self.labels["norm"].pack_forget()
+        CANVAS.itemconfig(self.lines["mag_circle"], state=state)
+        self._draw_scene(e)
 
-    def shoot(e) -> None:
+    def _toggle_angle(self, e: Event) -> None:
+        self.angle_lock = not self.angle_lock
+        self._draw_scene(e)
+
+    def _shoot(self, e: Event) -> None:
         # print("shoot")
-        global traj, time_taken, ux, uy, BOMB_COUNTER
-        bullet = Bullet(traj, time_taken, 10, canvas, ux, uy)
-        win.after(1, bullet.shooting_after)
-        bullet_list.append(bullet)
-        BOMB_COUNTER += 1
-        canvas.itemconfig(bomb_counter, text=f"Balls thrown: {BOMB_COUNTER}")
+        bullet = Bullet(self, self.traj.points, 10, self.traj.velocity)
+        WIN.after(1, bullet.shooting_after)
+        self.bullet_list.append(bullet)
+        self.bomb_counter += 1
+        CANVAS.itemconfig(self.labels["bomb"],
+                          text=f"Balls thrown: {self.bomb_counter}")
 
-    def heart(e) -> None:
-        global HEART_TOGGLE
-        HEART_TOGGLE = not HEART_TOGGLE
-        for i in bullet_list:
+    def _heart(self, e: Event) -> None:
+        self.heart_toggle = not self.heart_toggle
+        for i in self.bullet_list:
             i.toggle_heart()
 
-    win.bind('<Motion>', mouse_pos)
-    win.bind('<Up>', increase_height)
-    win.bind('<Down>', decrease_height)
-    win.bind('<Left>', zoom_in)
-    win.bind('<Right>', zoom_out)
-    win.bind('n', toggle_normal)
-    win.bind('<3>', toggle_normal, add="+")
-    win.bind('<1>', shoot)
-    win.bind('h', heart)
+
+class Bullet:
+    def __init__(self, game: Game, traj: list[Vec2], width: int, velocity: Vec2) -> None:
+        self.start = time()
+        self.traj = TrajectoryGenerator(traj, self.start)
+        if game.heart_toggle:
+            self.ball = CANVAS.create_image(10, 10, anchor=SW, image=HEART)
+        else:
+            self.ball = CANVAS.create_oval(
+                -width, WINSIZE+width, width+1, WINSIZE-width-1,
+                fill="#"+"".join(random.choices(hexdigits,k=6)))
+        self.width = width
+        self.time = CANVAS.create_text(-width, WINSIZE+width, text="test",
+                                       anchor=NE)
+        self.vy_label = CANVAS.create_text(-width, WINSIZE+width, text="test",
+                                           anchor=NE)
+        self.traj_line = CANVAS.create_line(0, 0, 0, 0, smooth=0, dash=(2, 4),
+                                            fill="#BFBFBF")
+        self.velocity = velocity
+        self.game = game
+        CANVAS.coords(self.traj_line, 0, WINSIZE,
+                      *chain.from_iterable(traj))
+
+    def toggle_heart(self):
+        """replaces the represenatation of the bullet with a heart"""
+        CANVAS.delete(self.ball)
+        if self.game.heart_toggle:
+            self.ball = CANVAS.create_image(10, 10, anchor=S, image=HEART)
+        else:
+            self.ball = CANVAS.create_oval(-self.width, WINSIZE+self.width,
+                self.width+1, WINSIZE-self.width-1,
+                fill="#"+"".join(random.choices(hexdigits,k=6)))
+
+    def shooting_after(self):
+        """Moves the bullet after a certain amount of time"""
+        try:
+            a = self.traj.__next__()
+            width = a[0]-self.width
+            height = a[1]-self.width
+            CANVAS.moveto(self.ball, width, height)
+            CANVAS.moveto(self.time, width, height-10)
+            CANVAS.moveto(self.vy_label, width, height-20)
+            vy = (self.velocity.y
+                  + self.game.gravity
+                  * (time() - self.start)) / self.game.scale
+            CANVAS.itemconfig(self.time, text=f"{time()-self.start:.1f} s")
+            CANVAS.itemconfig(
+                self.vy_label,
+                text=f"{math.sqrt(vy**2 + self.velocity.x**2):.1f}m/s")
+            WIN.after(7, self.shooting_after)
+        except StopIteration:
+            CANVAS.delete(self.ball)
+            CANVAS.delete(self.time)
+            CANVAS.delete(self.vy_label)
+            CANVAS.delete(self.traj_line)
+            self.game.bullet_list.remove(self)
 
 
+def main() -> None:
+    game = Game()
     """Start window"""
-    win.mainloop()
+    game.start()
+
 
 if __name__ == "__main__":
     main()
